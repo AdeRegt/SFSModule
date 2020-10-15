@@ -40,7 +40,7 @@ typedef struct{
 
 typedef struct{
 	SFSFileEntry entries[SFS_FILE_TABLE_ENTRIES];
-}__attribute__((packed , aligned (0x100))) SFSDirectory;
+}__attribute__((packed)) SFSDirectory;
 
 FILE *bestand;
 int maxsector;
@@ -50,12 +50,16 @@ SFSBootsector *bootsector;
 int readSector(int LBA,unsigned char* buffer){
 	printf("[INFO] Reading sector %i \n",LBA);
 	LBA += sectoroffset;
+	if(buffer==NULL){
+		printf("[ERRO] Trying to read sector to nothing!\n");
+		exit(EXIT_FAILURE);
+	}
 	if(LBA==maxsector||LBA>maxsector){
 		printf("[ERRO] Trying to read sector %i while max sector is %i \n",LBA,maxsector);
 		exit(EXIT_FAILURE);
 	}
 	int offset = LBA*ASSUMED_SECTOR_SIZE;
-	rewind(bestand);
+	fseek(bestand,0,SEEK_SET);
 	fseek(bestand,offset,SEEK_SET);
 	fread(buffer,1,ASSUMED_SECTOR_SIZE,bestand);
 }
@@ -113,12 +117,24 @@ void openImage(char* path){
 		printf("[INFO] Entering Sanderslando File System partition at offset %i \n",sectoroffset);
 		readSector(0,devicediscoverybuffer);
 	}
-	bootsector = devicediscoverybuffer;
-	if(bootsector->signature==0xCD&&bootsector->version==1){
+	bootsector = (SFSBootsector*)devicediscoverybuffer;
+	if(bootsector->signature==0xCD&&bootsector->version==1&&bootsector->sectorsize==ASSUMED_SECTOR_SIZE){
 		return;
 	}
 	printf("[ERRO] No signatures found!\n");
 	exit(EXIT_FAILURE);
+}
+
+unsigned char *map;
+SFSDirectory *dir;
+
+void traverse(char* path){
+	int dirtableloc = bootsector->offset_first_sectortable + bootsector->sectortablesize;
+	int maptableloc = bootsector->offset_first_sectortable;
+	map = (unsigned char*)malloc(ASSUMED_SECTOR_SIZE);
+	dir = (SFSDirectory *)malloc(ASSUMED_SECTOR_SIZE);
+	readSector(dirtableloc,(unsigned char*)dir);
+	readSector(maptableloc,(unsigned char*)map);
 }
 
 int main(int argc,char** argv){
@@ -138,6 +154,21 @@ int main(int argc,char** argv){
 			printf("[HELP] - load:  Download file argument1 to location argument2\n");
 		}else if(strcmp("dir",command)==0&&argc==4){
 			openImage(argv[2]);
+			traverse(argv[3]);
+			for(int i = 0 ; i < SFS_FILE_TABLE_ENTRIES ; i++){
+				SFSFileEntry ent = dir->entries[i];
+				unsigned char* filename = ent.filename;
+				if(filename[0]==0x00){
+					continue;
+				}
+				printf("[FILE] ");
+				for(int t = 0 ; t < SFS_MAX_FILE_NAME ; t++){
+					printf("%c",filename[t]);
+				}
+				printf(" \n");
+			}
+		}else if(strcmp("add",command)==0&&argc==4){
+		}else if(strcmp("load",command)==0&&argc==4){
 		}else{
 			printf("[ERRO] Invalid command \"%s\" use \"%s help\" for more information\n",command,argv[0]);
 			exit(EXIT_FAILURE);
