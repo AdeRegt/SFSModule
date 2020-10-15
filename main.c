@@ -128,13 +128,29 @@ void openImage(char* path){
 unsigned char *map;
 SFSDirectory *dir;
 
-void traverse(char* path){
+char *traverse(char* path){
 	int dirtableloc = bootsector->offset_first_sectortable + bootsector->sectortablesize;
 	int maptableloc = bootsector->offset_first_sectortable;
 	map = (unsigned char*)malloc(ASSUMED_SECTOR_SIZE);
 	dir = (SFSDirectory *)malloc(ASSUMED_SECTOR_SIZE);
 	readSector(dirtableloc,(unsigned char*)dir);
 	readSector(maptableloc,(unsigned char*)map);
+
+	if(path[0]!='/'){
+		printf("[ERRO] Illegal beginning of path. Path should start with / ! \n");
+		exit(EXIT_FAILURE);
+	}
+
+	int trvln = strlen(path);
+	int tek = 0;
+	for(int i = trvln-1 ; i >= 0 ; i-- ){
+		if(path[i]=='/'){
+			tek = i+1;
+			path[i] = 0x00;
+		}
+	}
+
+	return (char*) (path + tek);
 }
 
 int main(int argc,char** argv){
@@ -150,7 +166,6 @@ int main(int argc,char** argv){
 			printf("[HELP] Commands:\n");
 			printf("[HELP] - help:  This command\n");
 			printf("[HELP] - dir :  Show files in directory of argument1\n");
-			printf("[HELP] - add :  Add file argument2 to location argument1 \n");
 			printf("[HELP] - load:  Download file argument1 to location argument2\n");
 		}else if(strcmp("dir",command)==0&&argc==4){
 			openImage(argv[2]);
@@ -167,8 +182,47 @@ int main(int argc,char** argv){
 				}
 				printf(" \n");
 			}
-		}else if(strcmp("add",command)==0&&argc==4){
-		}else if(strcmp("load",command)==0&&argc==4){
+		}else if(strcmp("load",command)==0&&argc==5){
+			openImage(argv[2]);
+			char* msg = traverse(argv[3]);
+			printf("[INFO] Found request to write %s to file %s \n",msg,argv[4]);
+			unsigned char fid = 0;
+			for(int i = 0 ; i < SFS_FILE_TABLE_ENTRIES ; i++){
+				SFSFileEntry ent = dir->entries[i];
+				unsigned char* filename = ent.filename;
+				if(filename[0]==0x00){
+					continue;
+				}
+				unsigned char found = 1;
+				for(int t = 0 ; t < SFS_MAX_FILE_NAME ; t++){
+					if(filename[t]==0x00&&msg[t]==0){
+						break;
+					}
+					if(filename[t]!=msg[t]){
+						found = 0;
+					}
+				}
+				if(found){
+					fid = ent.fileid;
+				}
+			}
+			if(fid==0){
+				printf("[ERRO] Unable to find file in Sanderslando File System: %s \n",msg);
+				exit(EXIT_FAILURE);
+			}
+			printf("[INFO] Found file %s with id %i \n",msg,fid);
+			FILE *writeto = fopen(argv[4],"w");
+			if(writeto==NULL){
+				printf("[ERRO] Unable to open file %s for writing \n",argv[4]);
+			}
+			unsigned char *browsebuffer = (unsigned char*) malloc(ASSUMED_SECTOR_SIZE);
+			for(int i = 0 ; i < ASSUMED_SECTOR_SIZE ; i++){
+				if(map[i]==fid){
+					readSector(i,browsebuffer);
+					fwrite(browsebuffer,1,ASSUMED_SECTOR_SIZE,writeto);
+				}
+			}
+			fclose(writeto);
 		}else{
 			printf("[ERRO] Invalid command \"%s\" use \"%s help\" for more information\n",command,argv[0]);
 			exit(EXIT_FAILURE);
